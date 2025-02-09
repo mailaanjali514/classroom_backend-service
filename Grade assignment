@@ -1,0 +1,40 @@
+from fastapi import APIRouter, Depends, Header, HTTPException
+from typing import List
+from models import Assignment
+from database import SessionLocal, engine
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+
+router = APIRouter()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+class GradeAssignmentRequest(BaseModel):
+    id: int
+    grade: str
+
+@router.post("/teacher/assignments/grade", response_model=Assignment)
+def grade_assignment(grade_request: GradeAssignmentRequest, db: Session = Depends(get_db), x_principal: str = Header(...)):
+    # Parse the X-Principal header to ensure the user is a teacher
+    teacher_data = json.loads(x_principal)
+    if "teacher_id" not in teacher_data:
+        raise HTTPException(status_code=403, detail="Only teachers can grade assignments")
+    
+    assignment = db.query(Assignment).filter(Assignment.id == grade_request.id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    if assignment.teacher_id != teacher_data["teacher_id"]:
+        raise HTTPException(status_code=403, detail="You can only grade assignments submitted to you")
+    
+    assignment.grade = grade_request.grade
+    assignment.state = "GRADED"
+    db.commit()
+    db.refresh(assignment)
+    
+    return assignment
