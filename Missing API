@@ -1,0 +1,24 @@
+from fastapi import APIRouter, Depends, Header, HTTPException
+from typing import List
+from models import Teacher
+from database import SessionLocal, engine
+from sqlalchemy.orm import Session
+
+router = APIRouter()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@router.get("/principal/teachers", response_model=List[Teacher])
+def list_teachers(db: Session = Depends(get_db), x_principal: str = Header(...)):
+    # Parse the X-Principal header to ensure the user is a principal
+    principal_data = json.loads(x_principal)
+    if "principal_id" not in principal_data:
+        raise HTTPException(status_code=403, detail="Only principals can access this resource")
+    
+    teachers = db.query(Teacher).all()
+    return teachers
