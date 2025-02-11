@@ -1,0 +1,126 @@
+from flask import Flask, request, jsonify
+import datetime
+import sqlite3
+
+app = Flask(__name__)
+DATABASE = 'classroom.db'
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def get_principal_id(headers):
+    principal_data = headers.get('X-Principal')
+    if principal_data:
+        try:
+            principal_data = eval(principal_data)  # Safe eval after careful consideration
+            return principal_data.get('principal_id')
+        except Exception as e:
+            print(f"Error parsing principal data: {e}") # Log the error for debugging
+            return None
+    return None
+
+def get_teacher_id(headers):
+    teacher_data = headers.get('X-Principal')
+    if teacher_data:
+        try:
+            teacher_data = eval(teacher_data)
+            return teacher_data.get('teacher_id')
+        except:
+            return None
+    return None
+
+def get_student_id(headers):
+    student_data = headers.get('X-Principal')
+    if student_data:
+        try:
+            student_data = eval(student_data)
+            return student_data.get('student_id')
+        except:
+            return None
+    return None
+
+def get_user_id(headers):
+    user_data = headers.get('X-Principal')
+    if user_data:
+        try:
+            user_data = eval(user_data)
+            return user_data.get('user_id')
+        except:
+            return None
+    return None
+
+
+@app.route('/principal/teachers', methods=['GET'])
+def get_teachers():
+    principal_id = get_principal_id(request.headers)
+    if not principal_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT created_at, id, updated_at, user_id FROM teachers")
+    teachers = cursor.fetchall()
+    teacher_list = []
+    for teacher in teachers:
+        teacher_list.append({
+            "created_at": teacher[0],
+            "id": teacher[1],
+            "updated_at": teacher[2],
+            "user_id": teacher[3]
+        })
+    return jsonify({"data": teacher_list})
+
+
+@app.route('/teacher/assignments/grade', methods=['POST'])
+def grade_assignment_teacher():
+    teacher_id = get_teacher_id(request.headers)
+    if not teacher_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    if not data or 'id' not in data or 'grade' not in data:
+        return jsonify({"error": "Missing id or grade"}), 400
+
+    assignment_id = data['id']
+    grade = data['grade']
+
+    db = get_db()
+    cursor = db.cursor()
+
+    # Check if the assignment exists and is submitted to the teacher
+    cursor.execute("SELECT * FROM assignments WHERE id = ? AND teacher_id = ? AND state = 'SUBMITTED'", (assignment_id, teacher_id))
+    assignment = cursor.fetchone()
+    if not assignment:
+        return jsonify({"error": "Assignment not found or not submitted to this teacher"}), 404
+
+    now = datetime.datetime.now().isoformat()
+    cursor.execute("UPDATE assignments SET grade = ?, state = 'GRADED', updated_at = ? WHERE id = ?", (grade, now, assignment_id))
+    db.commit()
+
+    cursor.execute("SELECT * FROM assignments WHERE id = ?", (assignment_id,))
+    updated_assignment = cursor.fetchone()
+
+    return jsonify({"data": {
+        "content": updated_assignment[1],
+        "created_at": updated_assignment[2],
+        "grade": updated_assignment[3],
+        "id": updated_assignment[0],
+        "state": updated_assignment[4],
+        "student_id": updated_assignment[5],
+        "teacher_id": updated_assignment[6],
+        "updated_at": updated_assignment[7]
+    }})
+
+# ... (Other routes remain the same)
+
+if __name__ == '__main__':
+    app.run(debug=True)
